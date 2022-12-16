@@ -17,7 +17,6 @@ package csvcoder_test
 import (
 	"encoding/csv"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/google/xtoproto/csvcoder"
@@ -30,7 +29,7 @@ func Example_aRowParsing() {
 		Name string `csv:"name"`
 		Mass mass   `csv:"weight_kg"`
 	}
-	csvcoder.RegisterRowStruct(reflect.TypeOf(&species{}))
+	csvcoder.RegisterRowStruct[species]()
 
 	redwood := &species{}
 	err := csvcoder.ParseRow(
@@ -55,7 +54,7 @@ func Example_bFileParsing() {
 		Name string  `csv:"name"`
 		Mass float64 `csv:"weight_kg"`
 	}
-	csvcoder.RegisterRowStruct(reflect.TypeOf(&species{}))
+	csvcoder.RegisterRowStruct[species]()
 
 	inputReader := csv.NewReader(strings.NewReader(`name,weight_kg
 Redwood,1200000
@@ -68,8 +67,7 @@ Redwood,1200000
 		return
 	}
 
-	if err := fp.ReadAll(func(i interface{}) error {
-		rec := i.(*species)
+	if err := fp.ReadAll(func(rec *species) error {
 		fmt.Printf("record: name = %q, mass = %f\n", rec.Name, rec.Mass)
 		return nil
 	}); err != nil {

@@ -28,9 +28,9 @@ import (
 )
 
 func init() {
-	RegisterRowStruct(reflect.TypeOf(&abee{}))
-	RegisterRowStruct(reflect.TypeOf(&implicitFields{}))
-	RegisterRowStruct(reflect.TypeOf(&measurements{}))
+	RegisterRowStruct[abee]()
+	RegisterRowStruct[implicitFields]()
+	RegisterRowStruct[measurements]()
 }
 
 type abee struct {
@@ -83,7 +83,7 @@ func (p *distance) UnmarshalText(textBytes []byte) error {
 func distancePtr(d distance) *distance { return &d }
 
 func Test_dynamicParsable_ParseCSVRow(t *testing.T) {
-	RegisterRowStruct(reflect.TypeOf(&abee{}))
+	RegisterRowStruct[abee]()
 }
 
 func ExampleRegisterRowStruct() {
@@ -92,7 +92,7 @@ func ExampleRegisterRowStruct() {
 		Internal     string  `csv-skip:""`
 		WeightPounds float64 `csv:"weight-lb"`
 	}
-	RegisterRowStruct(reflect.TypeOf(&Pet{}))
+	RegisterRowStruct[Pet]()
 
 	henry := &Pet{}
 	err := ParseRow(NewRow(

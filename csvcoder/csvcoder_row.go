@@ -20,14 +20,14 @@
 // a struct field. See the examples for full usage, but to get a sense of how
 // csvcoder works, observe the following structure definition:
 //
-//		type mass float64
+//	type mass float64
 //
-//		type species struct {
-//			Name                string `csv:"name"`
-//			EstimatedPopulation int    `csv:"population_estimate"`
-//			Mass                mass   `csv:"weight_kg"`
-//		}
-//		csvcoder.RegisterRowStruct(reflect.TypeOf(&species{}))
+//	type species struct {
+//		Name                string `csv:"name"`
+//		EstimatedPopulation int    `csv:"population_estimate"`
+//		Mass                mass   `csv:"weight_kg"`
+//	}
+//	csvcoder.RegisterRowStruct(reflect.TypeOf(&species{}))
 //
 // Unlike the standard library packages, this package uses textcoder for
 // decoding textual values, allowing any package to provide a decoder for a
@@ -46,18 +46,16 @@ var (
 	defaultRegistry = newRegistry()
 )
 
+type explicitlyParsable interface {
+	ParseCSVRow(row *Row) error
+}
+
 // ParseRow returns an error if the row fails to parse.
 //
 // If the destination object has a `ParseCSVRow(*Row) error` method, that method
 // will be called on the destination object.
-//
-//
-func ParseRow(row *Row, destination interface{}) error {
-	type parsable interface {
-		ParseCSVRow(row *Row) error
-	}
-
-	if p, ok := destination.(parsable); ok {
+func ParseRow[T any](row *Row, destination T) error {
+	if p, ok := any(destination).(explicitlyParsable); ok {
 		err := p.ParseCSVRow(row)
 		if err != nil {
 			return row.errorf("%w", err)
@@ -65,7 +63,7 @@ func ParseRow(row *Row, destination interface{}) error {
 		return nil
 	}
 	t := reflect.ValueOf(destination).Type()
-	p, err := getRegisteredTypeOrErr(t)
+	p, err := getRegisteredTypeOrErr[T](t)
 	if err != nil {
 		return row.errorf("failed to parse CSV row into destination %v: %w", destination, err)
 	}
@@ -191,38 +189,41 @@ type RegisterOption struct {
 // with the name from step 2 into the field of a row being parsed. If there is
 // no registered decoder for *FT, RegisterRowStruct will panic and
 // SafeRegisterRowStruct returns an error.
-func RegisterRowStruct(t reflect.Type, opt ...RegisterOption) {
-	if err := SafeRegisterRowStruct(t, opt...); err != nil {
+func RegisterRowStruct[T any](opt ...RegisterOption) {
+	if err := SafeRegisterRowStruct[T](opt...); err != nil {
 		panic(fmt.Errorf("RegisterStruct failed: %w", err))
 	}
 }
 
 // SafeRegisterRowStruct calls RegisterRowStruct but returns an error instead of
 // panicking if there are any issues.
-func SafeRegisterRowStruct(t reflect.Type, opt ...RegisterOption) error {
-	_, err := getOrRegisterType(t, opt...)
+func SafeRegisterRowStruct[T any](opt ...RegisterOption) error {
+	var zeroT T
+	_, err := getOrRegisterType[*T](reflect.TypeOf(&zeroT), opt...)
 	return err
 }
 
-type rowParser interface {
-	ParseCSVRow(row *Row, dst interface{}) error
+type rowParser[T any] interface {
+	ParseCSVRow(row *Row, dst T) error
 }
 
-type registeredType struct {
+type registeredType[T any] struct {
 	t                   reflect.Type
 	requiredColumnNames map[string]struct{}
-	parser              *structParser
-	makeZero            func() interface{}
+	parser              *structParser[T]
+	makeZero            func() T
 }
 
-func (rt *registeredType) parseRow(row *Row) (interface{}, error) {
+func (rt *registeredType[T]) isRegisteredType() {}
+
+func (rt *registeredType[T]) parseRow(row *Row) (T, error) {
 	v := rt.makeZero()
 	err := rt.parser.ParseCSVRow(row, v)
 	return v, err
 }
 
-func getRegisteredType(t reflect.Type) *registeredType {
-	var rt *registeredType
+func getRegisteredTypeGeneric(t reflect.Type) genericRegisteredType {
+	var rt genericRegisteredType
 	func() {
 		defaultRegistry.registeredRowTypesLock.RLock()
 		defer defaultRegistry.registeredRowTypesLock.RUnlock()
@@ -231,8 +232,18 @@ func getRegisteredType(t reflect.Type) *registeredType {
 	return rt
 }
 
-func getRegisteredTypeOrErr(t reflect.Type) (*registeredType, error) {
-	rt := getRegisteredType(t)
+func getRegisteredType[T any](t reflect.Type) *registeredType[T] {
+	rt := getRegisteredTypeGeneric(t)
+	cast, _ := rt.(*registeredType[T])
+	return cast
+}
+
+func getRegisteredTypeOrErr[T any](t reflect.Type) (*registeredType[T], error) {
+	rt := getRegisteredTypeGeneric(t)
+	specialized, specializedOK := rt.(*registeredType[T])
+	if specializedOK {
+		return specialized, nil
+	}
 	if rt == nil {
 		var typeStrings []string
 		for _, rt := range defaultRegistry.registeredRowTypes {
@@ -240,14 +251,20 @@ func getRegisteredTypeOrErr(t reflect.Type) (*registeredType, error) {
 		}
 		return nil, fmt.Errorf("no CSV row parser registered for type %v; registered types: [%s]", t, strings.Join(typeStrings, ", "))
 	}
-	return rt, nil
+	// Otherwise, there is a registered type, but it is not of type T.
+	var zeroT T
+	concreteT := reflect.TypeOf(zeroT)
+	if concreteT. {
+
+	}
+	return specialized, fmt.Errorf("got a registered type for type %v, but it does not conform to the concrete type %v requested", t, concreteT)
 }
 
-func getOrRegisterType(t reflect.Type, opt ...RegisterOption) (*registeredType, error) {
-	if rt := getRegisteredType(t); rt != nil {
+func getOrRegisterType[T any](t reflect.Type, opt ...RegisterOption) (*registeredType[T], error) {
+	if rt := getRegisteredType[T](t); rt != nil {
 		return rt, nil
 	}
-	rt, err := inferRegisteredType(t, opt...)
+	rt, err := inferRegisteredType[T](t, opt...)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +274,7 @@ func getOrRegisterType(t reflect.Type, opt ...RegisterOption) (*registeredType, 
 	return rt, nil
 }
 
-func inferRegisteredType(t reflect.Type, opt ...RegisterOption) (*registeredType, error) {
+func inferRegisteredType[T any](t reflect.Type, opt ...RegisterOption) (*registeredType[T], error) {
 	if !(t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Struct) {
 		return nil, fmt.Errorf("type %v is not a pointer to a struct, so could not infer a CSV row parser", t)
 	}
@@ -293,21 +310,21 @@ func inferRegisteredType(t reflect.Type, opt ...RegisterOption) (*registeredType
 		})
 
 	}
-	return &registeredType{
+	return &registeredType[T]{
 		t,
 		requiredColumns,
-		&structParser{valueExtractors},
-		func() interface{} {
-			return reflect.New(t.Elem()).Interface()
+		&structParser[T]{valueExtractors},
+		func() T {
+			return reflect.New(t.Elem()).Interface().(T)
 		},
 	}, nil
 }
 
-type structParser struct {
+type structParser[T any] struct {
 	fieldParsers []func(row *Row, dstRow reflect.Value) error
 }
 
-func (p *structParser) ParseCSVRow(row *Row, dst interface{}) error {
+func (p *structParser[T]) ParseCSVRow(row *Row, dst T) error {
 	dstReflect := reflect.ValueOf(dst)
 	for _, fp := range p.fieldParsers {
 		if err := fp(row, dstReflect); err != nil {
@@ -317,16 +334,20 @@ func (p *structParser) ParseCSVRow(row *Row, dst interface{}) error {
 	return nil
 }
 
+type genericRegisteredType interface {
+	isRegisteredType()
+}
+
 type registry struct {
 	cellParsers            map[reflect.Type]*registeredCellParser
-	registeredRowTypes     map[reflect.Type]*registeredType
+	registeredRowTypes     map[reflect.Type]genericRegisteredType
 	registeredRowTypesLock sync.RWMutex
 }
 
 func newRegistry() *registry {
 	return &registry{
 		make(map[reflect.Type]*registeredCellParser),
-		make(map[reflect.Type]*registeredType),
+		make(map[reflect.Type]genericRegisteredType),
 		sync.RWMutex{},
 	}
 }

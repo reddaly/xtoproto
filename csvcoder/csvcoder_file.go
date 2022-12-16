@@ -22,23 +22,23 @@ import (
 	"strings"
 )
 
+// RowReader is an interface of a reader that reads raw records from the data
+// source. For example, csv.Reader is a RowReader.
+type RowReader interface {
+	Read() ([]string, error)
+}
+
 // FileParser is an object used to parse an entire CSV file.
-type FileParser struct {
+type FileParser[T any] struct {
 	r        RowReader
 	filePath string
-	rt       *registeredType
+	rt       *registeredType[T]
 
 	hdrOpt headerOption
 
 	hdr      *Header
 	rowNum   RowNumber
 	fatalErr error
-}
-
-// RowReader is an interface of a reader that reads raw records from the data
-// source. For example, csv.Reader is a RowReader.
-type RowReader interface {
-	Read() ([]string, error)
 }
 
 // NewFileParser returns an object for parsing a set of records from a file.
@@ -48,12 +48,12 @@ type RowReader interface {
 //
 // The type of the recordPrototype should have been registered with a call to
 // RegisterRowStruct.
-func NewFileParser(r RowReader, path string, recordPrototype any) (*FileParser, error) {
-	rt, err := getOrRegisterType(reflect.ValueOf(recordPrototype).Type())
+func NewFileParser[T any](r RowReader, path string, recordPrototype T) (*FileParser[T], error) {
+	rt, err := getOrRegisterType[T](reflect.ValueOf(recordPrototype).Type())
 	if err != nil {
 		return nil, fmt.Errorf("could not find or infer coder for type %v: %w", reflect.ValueOf(recordPrototype).Type(), err)
 	}
-	fp := &FileParser{
+	fp := &FileParser[T]{
 		r, path, rt,
 		headerOption{expectedColumns: rt.requiredColumnNames},
 		nil,
@@ -68,7 +68,9 @@ func NewFileParser(r RowReader, path string, recordPrototype any) (*FileParser, 
 	return fp, nil
 }
 
-func (fp *FileParser) parseHeader() error {
+// parseHeader parses the first line of the CSV file in case it is needed by
+// the decoder (for example to look up the column number from a column name).
+func (fp *FileParser[T]) parseHeader() error {
 	if fp.hdrOpt.noHeader {
 		fp.hdr = fp.hdrOpt.predeterminedHeader
 	}
@@ -93,20 +95,23 @@ func (fp *FileParser) parseHeader() error {
 }
 
 // Read parses the next record in the CSV. The header is parsed automatically.
-func (fp *FileParser) Read() (interface{}, error) {
+func (fp *FileParser[T]) Read() (T, error) {
 	if fp.hdr == nil {
 		if err := fp.parseHeader(); err != nil {
-			return nil, fmt.Errorf("failed to parse header: %w", err)
+			var zero T
+			return zero, fmt.Errorf("failed to parse header: %w", err)
 		}
 	}
 
 	rowVals, err := fp.r.Read()
 	if err == io.EOF {
-		return nil, err
+		var zero T
+		return zero, err
 	}
 	row := NewRow(rowVals, fp.hdr, fp.rowNum, fp.filePath)
 	if err != nil {
-		return nil, row.errorf("csv.Reader error: %w", err)
+		var zero T
+		return zero, row.errorf("csv.Reader error: %w", err)
 	}
 	fp.rowNum++
 
@@ -114,7 +119,7 @@ func (fp *FileParser) Read() (interface{}, error) {
 }
 
 // ReadAll calls Read() until the end of the file and calls cb for each value.
-func (fp *FileParser) ReadAll(callback func(interface{}) error) error {
+func (fp *FileParser[T]) ReadAll(callback func(T) error) error {
 	for {
 		got, err := fp.Read()
 		if err == io.EOF {
