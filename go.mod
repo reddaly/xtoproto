@@ -1,6 +1,6 @@
 module github.com/google/xtoproto
 
-go 1.14
+go 1.19
 
 require (
 	github.com/bazelbuild/rules_go v0.23.3

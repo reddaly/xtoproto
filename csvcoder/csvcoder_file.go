@@ -48,7 +48,7 @@ type RowReader interface {
 //
 // The type of the recordPrototype should have been registered with a call to
 // RegisterRowStruct.
-func NewFileParser(r RowReader, path string, recordPrototype interface{}) (*FileParser, error) {
+func NewFileParser(r RowReader, path string, recordPrototype any) (*FileParser, error) {
 	rt, err := getOrRegisterType(reflect.ValueOf(recordPrototype).Type())
 	if err != nil {
 		return nil, fmt.Errorf("could not find or infer coder for type %v: %w", reflect.ValueOf(recordPrototype).Type(), err)
