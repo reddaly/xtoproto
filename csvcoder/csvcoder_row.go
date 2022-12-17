@@ -254,7 +254,7 @@ func getRegisteredTypeOrErr[T any](t reflect.Type) (*registeredType[T], error) {
 	// Otherwise, there is a registered type, but it is not of type T.
 	var zeroT T
 	concreteT := reflect.TypeOf(zeroT)
-	if concreteT. {
+	if concreteT {
 
 	}
 	return specialized, fmt.Errorf("got a registered type for type %v, but it does not conform to the concrete type %v requested", t, concreteT)
